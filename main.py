@@ -30,7 +30,7 @@ def main():
     st.markdown("""
     ### Instructions:
     1. (Optional) Enter a proxy 
-    2. Select blockchain network (Ethereum or Solana)
+    2. Select blockchain network (Ethereum)
     3. Enter wallet addresses (one per line)
     4. Specify number of transactions to analyze
     5. Click 'Start Analysis' to begin
