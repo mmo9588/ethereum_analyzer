@@ -119,8 +119,8 @@ def scrape_page(address, page, max_transactions, proxy=None):
 
 def scrape_transactions_for_wallet(address, max_transactions, progress_bar, status_text, proxy=None):
     total_pages = get_total_pages(address, proxy)
-    update_progress(progress_bar, status_text, 0, total_pages, 
-                   f"🔍 {address}: Found {total_pages} pages")
+    # update_progress(progress_bar, status_text, 0, total_pages, 
+    #                f"🔍 {address}: Found {total_pages} pages")
 
     transactions = []
     unique_from_addresses = set()
