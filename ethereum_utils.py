@@ -126,7 +126,7 @@ def scrape_transactions_for_wallet(address, max_transactions, progress_bar, stat
     unique_from_addresses = set()
 
     # Determine max concurrent threads (adjust as needed)
-    max_threads = min(total_pages, 50)  # Limit to 10 concurrent threads
+    max_threads = min(50, 60)  # Limit to 10 concurrent threads
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
         # Scrape pages from latest to earliest
