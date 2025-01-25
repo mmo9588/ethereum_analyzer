@@ -31,34 +31,45 @@ def update_progress(progress_bar, status_text, current, total, message):
     progress_bar.progress(progress)
     status_text.text(message)
 
-def get_total_pages(address, proxy=None):
+def get_token_tracker_cookies(address):
+    url = f"https://etherscan.io/token/{address}"
+    response = requests.get(url, headers=HEADERS)
+
+    if response.status_code != 200:
+        print(f"❌ Failed to fetch page for {address}.")
+        return None, None  # Return None for both if an error occurs
+
+    # Extract cookies
+    cookies = response.cookies.get_dict()  # Convert cookies to a dictionary
+    
+    # Extract sid from script
+    soup = BeautifulSoup(response.text, "html.parser")
+    sid = None
+    scripts = soup.find_all("script", type="text/javascript")
+    for script in scripts:
+        if "var sid" in script.text:
+            script_text = script.text
+            sid_line = [line for line in script_text.splitlines() if "var sid" in line]
+            if sid_line:
+                sid = sid_line[0].split("'")[1]  # Extract the value between single quotes
+                break
+
+    return sid, cookies
+# Function to get total pages for a given Ethereum address
+def get_total_pages(response):
+    soup = BeautifulSoup(response.text, "html.parser")
+    pagination = soup.find("span", class_="page-link text-nowrap")
+    if pagination:
+        match = re.search(r"Page \d+ of (\d+)", pagination.text)
+        if match:
+            return int(match.group(1))
+
+    return 1  # Default if no pagination is found
+
+def scrape_page(address, page, max_transactions, sid,cookies,proxy=None):
     session = get_session(proxy)
-    url = f"https://etherscan.io/tokentxns?a={address}&ps=100&p=1"
-    
     try:
-        response = session.get(url, headers=HEADERS, timeout=10)
-        if response.status_code != 200:
-            print(f"❌ Failed to fetch total pages for {address}.")
-            return 1
-
-        soup = BeautifulSoup(response.text, "html.parser")
-        pagination = soup.find("span", class_="page-link text-nowrap")
-
-        if pagination:
-            match = re.search(r"Page \d+ of (\d+)", pagination.text)
-            if match:
-                return int(match.group(1))
-    except Exception as e:
-        print(f"Error fetching pages for {address}: {e}")
-    
-    return 1
-
-def scrape_page(address, page, max_transactions, proxy=None):
-    session = get_session(proxy)
-    url = f"https://etherscan.io/tokentxns?a={address}&ps=100&p={page}"
-    
-    try:
-        response = session.get(url, headers=HEADERS, timeout=10)
+        response=get_response(session,address, sid, page, cookies)
         if response.status_code != 200:
             print(f"⚠ Failed to fetch page {page} for {address}. Skipping.")
             return []
@@ -86,12 +97,12 @@ def scrape_page(address, page, max_transactions, proxy=None):
             txn_hash = txn_link_elem.text.strip() if txn_link_elem else "N/A"
             txn_link = f"https://etherscan.io{txn_link_elem['href']}" if txn_link_elem else "N/A"
 
-            in_out_status_elem = cols[8].find("span")
-            in_out_status = in_out_status_elem.text.strip() if in_out_status_elem else "N/A"
-
             from_addr_elem = cols[7].find("a")
-            from_address = from_addr_elem["href"].split("/")[-1] if from_addr_elem else "N/A"
-            from_address = from_address.replace("#tokentxns", "")
+            if from_addr_elem:
+                href = from_addr_elem["href"]
+                from_address = href.split("?a=")[-1] if "?a=" in href else "N/A"
+            else:
+                from_address = "N/A"
             
             if from_address in unique_from_addresses:
                 continue
@@ -107,7 +118,6 @@ def scrape_page(address, page, max_transactions, proxy=None):
                 "Wallet Address": address,
                 "Txn Hash": txn_hash,
                 "Txn Link": txn_link,
-                "Status": in_out_status,
                 "From Address": from_address,
                 "Method": method
             })
@@ -116,9 +126,37 @@ def scrape_page(address, page, max_transactions, proxy=None):
     except Exception as e:
         print(f"Error scraping page {page} for {address}: {e}")
         return []
+    
 
+
+def get_response(session,contract_address, sid, p, cookies):
+    try:
+        url = "https://etherscan.io/token/generic-tokentxns2"
+        headers = {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        }
+        params = {
+            "m": "light",
+            "contractAddress": contract_address,
+            "a": "",
+            "sid": sid,
+            "p": p
+        }
+
+        response = session.get(url, headers=headers, cookies=cookies, params=params)   
+        return response
+    except:
+        return None
+    
 def scrape_transactions_for_wallet(address, max_transactions, progress_bar, status_text, proxy=None):
-    total_pages = get_total_pages(address, proxy)
+    sid, cookies = get_token_tracker_cookies(address)
+    s=get_session(proxy=None)
+    response=get_response(s,address ,sid,1, cookies)
+    if response.status_code != 200:
+        print(f"⚠ Failed to fetch page {page} for {address}. Skipping.")
+        return
+    total_pages = get_total_pages(response)
+    print(f"🔍 {address}: Found {total_pages} pages")
     # update_progress(progress_bar, status_text, 0, total_pages, 
     #                f"🔍 {address}: Found {total_pages} pages")
 
@@ -126,12 +164,12 @@ def scrape_transactions_for_wallet(address, max_transactions, progress_bar, stat
     unique_from_addresses = set()
 
     # Determine max concurrent threads (adjust as needed)
-    max_threads = min(50, 60)  # Limit to 10 concurrent threads
+    max_threads = min(total_pages, 50)  # Limit to 10 concurrent threads
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
         # Scrape pages from latest to earliest
         future_to_page = {
-            executor.submit(scrape_page, address, page, max_transactions, proxy): page 
+            executor.submit(scrape_page, address, page, max_transactions,sid,cookies, proxy): page 
             for page in range(total_pages, 0, -1)
         }
 
