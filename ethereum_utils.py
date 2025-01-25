@@ -170,7 +170,7 @@ def scrape_transactions_for_wallet(address, max_transactions, progress_bar, stat
         # Scrape pages from latest to earliest
         future_to_page = {
             executor.submit(scrape_page, address, page, max_transactions,sid,cookies, proxy): page 
-            for page in range(total_pages, 0, -1)
+            for page in range(1, total_pages + 1)
         }
 
         for future in concurrent.futures.as_completed(future_to_page):
